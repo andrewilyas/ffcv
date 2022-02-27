@@ -42,6 +42,7 @@ from ffcv.loader import Loader, OrderOption
 from ffcv.pipeline.operation import Operation
 from ffcv.transforms import RandomHorizontalFlip, Cutout, \
     RandomTranslate, Convert, ToDevice, ToTensor, ToTorchImage
+from ffcv.transforms import ImageMixup, LabelMixup, MixupToOneHot
 from ffcv.transforms.common import Squeeze
 from ffcv.writer import DatasetWriter
 
@@ -79,11 +80,20 @@ def make_dataloaders(train_dataset=None, val_dataset=None, batch_size=None, num_
     loaders = {}
 
     for name in ['train', 'test']:
-        label_pipeline: List[Operation] = [IntDecoder(), ToTensor(), ToDevice('cuda:0'), Squeeze()]
+        if name == 'train':
+            label_pipeline: List[Operation] = [IntDecoder(), 
+                LabelMixup(alpha=0.2, same_lambda=True),
+                ToTensor(), ToDevice('cuda:0'), 
+                MixupToOneHot(num_classes=10), Squeeze()]
+        else:
+            label_pipeline: List[Operation] = [IntDecoder(), 
+                ToTensor(), ToDevice('cuda:0'), Squeeze()]
+
         image_pipeline: List[Operation] = [SimpleRGBImageDecoder()]
         if name == 'train':
             image_pipeline.extend([
                 RandomHorizontalFlip(),
+                ImageMixup(alpha=0.2, same_lambda=True),
                 RandomTranslate(padding=2, fill=tuple(map(int, CIFAR_MEAN))),
                 Cutout(4, tuple(map(int, CIFAR_MEAN))),
             ])
@@ -179,7 +189,7 @@ def train(model, loaders, lr=None, epochs=None, label_smoothing=None,
 def evaluate(model, loaders, lr_tta=False):
     model.eval()
     with ch.no_grad():
-        for name in ['train', 'test']:
+        for name in ['test']:
             total_correct, total_num = 0., 0.
             for ims, labs in tqdm(loaders[name]):
                 with autocast():
